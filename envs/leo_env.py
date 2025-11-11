@@ -8,6 +8,7 @@ from typing import Dict, Tuple, List
 from envs.object.node import Node
 from envs.object.edge import Edge
 from envs.object.task import Task
+from envs.param import DATA_COMPUTE_PENALTY, DATA_TRANSFER_PENALTY, LAYER_COMPLETION_REWARD, NO_ACTION_PENALTY, TASK_COMPLETION_REWARD, TIME_PENALTY
 
 
 class LEOEnv(gym.Env):
@@ -23,21 +24,21 @@ class LEOEnv(gym.Env):
         # parameters
         self.num_layers = 5
         self.num_tasks = 1
-        self.t_slot = 32 #seconds
+        self.t_slot = 32 #seconds per slot
         self.isl_bit_per_slot = 1_000_000_000 * self.t_slot # bits/time_slot
         self.x = 2_400_000_000 # image raw data -> bits
 
         # time cost per layer updating
-        self.layer_time_cost = [25, 15, 5, 5, 1] # in seconds
-        self.layer_output_bit = [self.x, self.x / 10e1, self.x / 10e4, self.x / 10e8, 8] # bits per layer
+        self.layer_second_cost = [8, 5, 5, 3, 1] # in seconds
+        self.layer_output_bit = [self.x, self.x / 1e2, self.x / 1e5, self.x / 1e9, 8]
 
         # precision
         self.step_per_slot = 100 # steps per slot
         
         # step variables
-        self.t_step = self.t_slot / self.step_per_slot
+        self.t_step = self.t_slot / self.step_per_slot # seconds per step
         self.isl_bit_per_step = self.isl_bit_per_slot / self.step_per_slot
-        self.layer_process_step_cost = [i * self.step_per_slot for i in self.layer_time_cost]
+        self.layer_process_step_cost = [math.ceil(i / self.t_step) for i in self.layer_second_cost]
 
         # network topology
         self.nodes: Dict[Tuple[int, int], Node] = {}
@@ -158,163 +159,166 @@ class LEOEnv(gym.Env):
 
     def step(self, actions: List[int]):
         assert len(actions) == len(self.tasks)
-        self.global_time_counter += 1
+
         total_reward = 0.0
-        total_energy_cost = 0.0  # 用于记录本step能耗
-        total_delay_cost = 0.0   # 用于记录本step延迟
+        total_energy_cost = 0.0
+        total_delay_cost = 0.0
+        
+        reward = TIME_PENALTY
+        energy_cost = 0.0
         
         # ========== (1) 更新能量 ==========
-        # solar recharge
         for k, node in self.nodes.items():
-            # minus small energy for static cost
-            node.energy -= 0.01
-            
-            # add some energy if sunlit
-            if int(node.gamma) == 1:
-                node.energy = min(node.energy + 1.0, 100.0)
-                
-                
-        # ========== (2) 执行动作 ==========
-        # apply actions
+            node.energy -= 0.01  # 静态损耗
+            if int(node.gamma) == 1:  # 光照下充电
+                node.energy = min(node.energy + 0.2, 100.0)
+
+        # ========== (2) 统计所有传输请求 ==========
+        transfer_reqs = []  # [(task, src, dst, data_size_bits)]
         for task, act in zip(self.tasks, actions):
-            
-            # not started yet
-            if task.t_start > self.global_time_counter:
+            if task.t_start > self.global_time_counter or task.is_done:
                 continue
             
-            # already finished
-            if task.is_done:
-                continue
-            
-            # get current position
             p, o = task.plane_at, task.order_at
-            
-            # get current node
             node = self.nodes.get((p, o))
             if node is None:
                 continue
 
-            # set reward for this step
-            reward = 0.0
-            energy_cost = 0.0
-            
-            # doing nothing, we don't want it to be lazy
+            # move actions 1-4 会产生传输需求
+            if act in [1, 2, 3, 4]:
+                
+                task.layer_process = 0  # 传输完清空计算进度
+                
+                if act == 1:
+                    dst = ((p + 1) % self.num_planes, o)
+                elif act == 2:
+                    dst = ((p - 1) % self.num_planes, o)
+                elif act == 3:
+                    dst = (p, (o + 1) % self.sats_per_plane)
+                else:
+                    dst = (p, (o - 1) % self.sats_per_plane)
+                
+                if ((p, o), dst) in self.edges:
+                    
+                    # get the data size of the current layer output
+                    data_bits = self.layer_output_bit[task.layer_id]
+                    
+                    # append transfer request
+                    transfer_reqs.append((task, (p, o), dst, data_bits))
+        
+        # ========== (3) 执行传输：按任务大小分配链路带宽 ==========
+        edge_transfers: Dict[Tuple[Tuple[int,int],Tuple[int,int]], List[Tuple[Task, float]]] = {}
+
+        for task, src, dst, data_bits in transfer_reqs:
+            edge_key = (src, dst)
+            edge_transfers.setdefault(edge_key, []).append((task, data_bits))
+
+        # 按比例分配带宽
+        for edge_key, task_list in edge_transfers.items():
+            edge = self.edges.get(edge_key)
+            if not edge or edge.rate is None:
+                continue
+
+            total_data = sum(bits for _, bits in task_list)
+            for task, data_bits in task_list:
+                r = data_bits / total_data
+                # 分配得到的带宽比例
+                c = self.isl_bit_per_step * r
+                task.link_process += c
+                # 若带宽足够，传输完成
+                if task.link_process >= data_bits:
+                    task.plane_at, task.order_at = edge_key[1]
+                    task.link_process = 0  # 传输完清空链路进度
+                    reward = DATA_TRANSFER_PENALTY
+                else:
+                    # 传不完则下次继续
+                    remain_ratio = 1 - c / data_bits
+                    reward = DATA_TRANSFER_PENALTY * remain_ratio
+                energy_cost = 0.2
+
+        # ========== (4) 执行动作 ==========
+        for task, act in zip(self.tasks, actions):
+            if task.t_start > self.global_time_counter or task.is_done:
+                continue
+
+            p, o = task.plane_at, task.order_at
+            node = self.nodes.get((p, o))
+            if node is None:
+                continue
+
+            # act == 0: 不动
             if act == 0:
-                # we don't want it to be lazy
-                reward = -1.0
-            
-            # move to next plane
-            elif act == 1:
-                # get next pos
-                next_p = (p + 1) % self.num_planes
-                
-                # get the destination
-                dest = (next_p, o)
-                
-                # ensure the destination is correct
-                if ((p, o), dest) in self.edges:
-                    # update pos
-                    task.plane_at = next_p
-                    # clear the layer process progress
-                    task.layer_process = 0
-                    # minus energy for moving
-                    energy_cost = 0.2
-                    # and reward, we don't want it move randomly
-                    reward = -1
-                else:
-                    reward = -2
-                    
-            # move to previous plane
-            elif act == 2:
-                prev_p = (p - 1) % self.num_planes
-                dest = (prev_p, o)
-                if ((p, o), dest) in self.edges:
-                    # update pos
-                    task.plane_at = prev_p
-                    # clear the layer process progress
-                    task.layer_process = 0
-                    energy_cost = 0.2
-                    reward = -1
-                else:
-                    reward = -2
-                    
-            # move to next satellite in the same plane
-            elif act == 3:
-                next_o = (o + 1) % self.sats_per_plane
-                dest = (p, next_o)
-                if ((p, o), dest) in self.edges:
-                    task.order_at = next_o
-                    # clear the layer process progress
-                    task.layer_process = 0
-                    energy_cost = 0.2
-                    reward = -1
-                else:
-                    reward = -2
-                    
-            # move to previous satellite in the same plane
-            elif act == 4:
-                next_y = (o - 1) % self.sats_per_plane
-                dest = (p, next_y)
-                if ((p, o), dest) in self.edges:
-                    task.order_at = next_y
-                    # clear the layer process progress
-                    task.layer_process = 0
-                    energy_cost = 0.2
-                    reward = -1
-                else:
-                    reward = -2
-                    
-            # perform data processing
+                reward = NO_ACTION_PENALTY
+
+            # act == 5: 执行推理
             elif act == 5:
-                
-                # minus the energy cost on processing each time
-                energy_cost = 0.5
-                reward = -1
-                
-                # make process plus 1
+                energy_cost = 1
                 task.layer_process += 1
-                
-                
-                # if process reach the condition, the layer_id will be updated
-                if task.layer_process > self.layer_process_step_cost[task.layer_id]:
+                reward = DATA_COMPUTE_PENALTY
+
+                # 达到层处理要求则层数+1
+                if task.layer_process >= self.layer_process_step_cost[task.layer_id]:
                     task.layer_id += 1
                     task.layer_process = 0
-                    reward = 1.0
-                
+                    reward = LAYER_COMPLETION_REWARD
+
+                # 全部完成
                 if task.layer_id >= self.num_layers:
                     task.is_done = True
-                    reward = 5.0
-                    
+                    reward = TASK_COMPLETION_REWARD
             else:
-                reward = -5.0
-            
+                # 传输动作已在上面处理
+                pass
+
             node.energy -= energy_cost
             total_energy_cost += energy_cost
-            task.t_end += 1
-            total_delay_cost += 1  # 每一步都算延迟
-            
+            total_delay_cost += 1
             total_reward += reward
-            
-        # ========== (3) 计算归一化Reward ==========
+
+        # ========== (5) 计算归一化Reward ==========
         num_tasks = len(self.tasks)
-        max_proc_cost = 3.0  # 每任务最大处理能耗
+        max_proc_cost = 3.0
         normE = max(1e-6, num_tasks * max_proc_cost)
         normD = max(1e-6, num_tasks * 1.0)
-
-        # 延迟惩罚和能耗惩罚
-        w1, w2 = 0.4, 0.6  # 权重
+        w1, w2 = 0.4, 0.6
         delay_penalty = total_delay_cost / normD
         energy_penalty = total_energy_cost / normE
-
         total_reward -= (w1 * delay_penalty + w2 * energy_penalty)
 
-        # ========== (4) 输出 ==========
+        # ========== (6) 输出 ==========
         is_all_done = all(t.is_done for t in self.tasks)
+        
+        # 终止条件
+        done = False
+        success = False
+        fail_reason = None
+
+        # 1. step 超过 step_per_slot
+        if self.global_time_counter >= self.step_per_slot:
+            done = True
+            fail_reason = "step_limit"
+            
+        # 2. 任意卫星电量为0
+        elif any(n.energy <= 0 for n in self.nodes.values()):
+            done = True
+            fail_reason = "energy_depleted"
+            
+        # 3. 任务全部完成
+        elif is_all_done:
+            done = True
+            success = True
+
         obs = self._get_obs()
-        info = {'global_time': self.global_time_counter,
-                'delay': delay_penalty,
-                'energy': energy_penalty}
-        return obs, total_reward, is_all_done, False, info
+        info = {
+            'global_time': self.global_time_counter,
+            'delay': delay_penalty,
+            'energy': energy_penalty,
+            'success': success,
+            'fail_reason': fail_reason
+        }
+        self.global_time_counter += 1
+        return obs, total_reward, done, success, info
+
 
     def _get_obs(self):
         parts: List[float] = []
@@ -382,7 +386,7 @@ class LEOEnv(gym.Env):
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
-        ax.set_title(f'Satellite Network at {self.global_time_counter * self.t_step * self.step_per_slot:.2f} seconds')
+        ax.set_title(f'Satellite Network at {self.global_time_counter * self.t_step:.2f} seconds')
         # 图例只显示一次
         handles, labels = ax.get_legend_handles_labels()
         by_label = dict(zip(labels, handles))

@@ -1,0 +1,8 @@
+# Rewards:
+NO_ACTION_PENALTY = -1  # 每步无动作惩罚
+DATA_TRANSFER_PENALTY = 1  # 数据传输惩罚
+DATA_COMPUTE_PENALTY = 1  # 数据计算惩罚
+TIME_PENALTY = -1  # 每步时间惩罚
+
+TASK_COMPLETION_REWARD = 50.0  # 任务完成奖励
+LAYER_COMPLETION_REWARD = 10.0  # 层完成奖励
