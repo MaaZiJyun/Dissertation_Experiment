@@ -4,10 +4,10 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 from envs.core.formulation import compute_delay_penalty, compute_energy_penalty
-from envs.param import B_MAX, COMPUTE_ENERGY_COST, DATA_COMPUTE_PENALTY, DATA_TRANSFER_PENALTY, LAYER_COMPLETION_REWARD, LAYER_OUTPUT_DATA_SIZE, LAYER_PROCESS_STEP_COST, NO_ACTION_PENALTY, NUM_LAYERS, NUM_TASKS, STEP_PER_SLOT, T_SLOT, T_STEP, TASK_COMPLETION_REWARD, TIME_PENALTY, TRANSMIT_ENERGY_COST, WRONG_EDGE_PENALTY
+from envs.param import COMPUTE_ENERGY_COST, DATA_COMPUTE_PENALTY, DATA_TRANSFER_PENALTY, LAYER_COMPLETION_REWARD, LAYER_OUTPUT_DATA_SIZE, LAYER_PROCESS_STEP_COST, NO_ACTION_PENALTY, NUM_LAYERS, NUM_TASKS, STEP_PER_SLOT, T_SLOT, T_STEP, TASK_COMPLETION_REWARD, TIME_PENALTY, TRANSMIT_ENERGY_COST, WRONG_EDGE_PENALTY
 from envs.core.topology_manager import TopologyManager
 from envs.core.task_manager import TaskManager
-from envs.core.energy import update_energy
+from envs.core.energy import update_static_energy
 from envs.core.transmission import process_transfers
 from envs.core.computation import process_computation
 from envs.core.reward import compute_reward
@@ -22,33 +22,36 @@ class LEOEnv(gym.Env):
         super().__init__()
         self.topology_manager = TopologyManager(json_path)
         self.task_manager = TaskManager(NUM_TASKS, self.topology_manager)
-        # self.isl_bit_per_slot = 1_000_000_000 * T_SLOT
-        # self.isl_bit_per_step = self.isl_bit_per_slot / STEP_PER_SLOT
         
-        self.total_reward = 0.0
-
-        # 初始化
-        obs, _ = self.reset()
+        # 初始化基本参数
         self.step_counter = 0
+        self.total_reward = 0.0
         self.action_space = spaces.MultiDiscrete([6] * NUM_TASKS)
+
+        # 初始化观察空间
+        obs, _ = self.reset()
         self.observation_space = spaces.Box(low=0.0, high=1e9, shape=obs.shape, dtype=np.float32)
 
     # 任务生成逻辑已迁移到TaskManager
 
     def reset(self, seed=None, options=None):
+        
         super().reset(seed=seed)
-        self.total_reward = 0.0
+        
         self.step_counter = 0
+        self.total_reward = 0.0
+        
         for key, n in self.topology_manager.nodes.items():
             n.energy = float(np.random.uniform(50, 100))
+            
         self.task_manager.reset_tasks()
-        tasks = self.task_manager.get_tasks()
+        
         return get_observation(
             self.topology_manager.nodes, 
             self.topology_manager.num_planes, 
             self.topology_manager.sats_per_plane, 
             self.step_counter, 
-            tasks
+            self.task_manager.get_tasks()
         ), {}
 
     def step(self, actions):
@@ -57,7 +60,7 @@ class LEOEnv(gym.Env):
         assert len(actions) == len(tasks)
         
         # update energy for all nodes by default
-        update_energy(self.topology_manager.nodes)
+        update_static_energy(self.topology_manager.nodes)
 
         action_reward = 0.0
         
@@ -134,14 +137,14 @@ class LEOEnv(gym.Env):
                 
             elif act == 5:
                 
-                result = process_computation(task, LAYER_PROCESS_STEP_COST, NUM_LAYERS, self.step_counter)
+                state = process_computation(task)
 
                 node.energy = max(node.energy + COMPUTE_ENERGY_COST, 0.0)
 
-                if result == 'layer_complete':
+                if state == 'layer_complete':
                     action_reward = LAYER_COMPLETION_REWARD
                     
-                elif result == 'done':
+                elif state == 'done':
                     action_reward = TASK_COMPLETION_REWARD
 
                 else:
