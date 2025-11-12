@@ -1,9 +1,9 @@
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 import os
+from envs.env import LEOEnv
 
 # 环境实例化
-from envs.env import LEOEnv
 env = LEOEnv(json_path="data/parsed_data.json")
 
 # 检查环境符合 Gym 接口规范

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from envs.object.node import Node
+from envs.snapshot.node import Node
 
 """
 edges: list of ISL links between satellites, each edge is a dict with

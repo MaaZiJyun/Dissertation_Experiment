@@ -1,8 +1,45 @@
-# Rewards:
+import math
+# SIMULATION:
+
+
+T_SLOT = 32  # 每个时间槽的持续时间（秒）
+STEP_PER_SLOT = 320  # 每个时间槽的步数
+T_STEP = T_SLOT / STEP_PER_SLOT  # 每步的持续时间（秒）
+B_MAX = 100
+
+# PENALTY:
 NO_ACTION_PENALTY = -5  # 每步无动作惩罚
+WRONG_EDGE_PENALTY = -10  # 每步错误边缘惩罚
 DATA_TRANSFER_PENALTY = -1  # 数据传输惩罚
 DATA_COMPUTE_PENALTY = -1  # 数据计算惩罚
 TIME_PENALTY = -0.5  # 每步时间惩罚
 
+# REWARD:
 TASK_COMPLETION_REWARD = 50.0  # 任务完成奖励
 LAYER_COMPLETION_REWARD = 10.0  # 层完成奖励
+
+# ENERGY CONSUMPTION:
+COMPUTE_ENERGY_COST = -1.0  # 每步计算能量消耗
+TRANSMIT_ENERGY_COST = -0.2  # 每步传输能量消耗
+STATIC_ENERGY_COST = -0.01  # 每步静态能量消耗
+
+# ENERGY HARVESTING:
+ENERGY_HARVEST_AMOUNT = 0.2  # 每步能量收集量
+
+# DATA SIZE: (bits)
+IMAGE_DATA_SIZE = 2_400_000_000
+LAYER_OUTPUT_DATA_SIZE = [
+    IMAGE_DATA_SIZE, 
+    IMAGE_DATA_SIZE / 1e2, 
+    IMAGE_DATA_SIZE / 1e5, 
+    IMAGE_DATA_SIZE / 1e9, 
+    8
+]
+
+# LATENCY: (steps)
+LAYER_PROCESS_STEP_COST = [8, 5, 5, 3, 1]
+LAYER_PROCESS_STEP_COST = [math.ceil(i / T_STEP) for i in LAYER_PROCESS_STEP_COST]
+
+# NUMBER:
+NUM_LAYERS = len(LAYER_OUTPUT_DATA_SIZE)
+NUM_TASKS = 2
