@@ -5,13 +5,13 @@ from envs.snapshot.task import Task
 from envs.snapshot.edge import Edge
 
 def process_transfers(
-    transfer_reqs: List[TransReq], 
+    trans_reqs: List[TransReq], 
     edges: Dict[Tuple[Tuple[int, int], Tuple[int, int]], Edge], 
     tasks: List[Task]
 ):
     edge_transfers: Dict[Tuple[Tuple[int,int],Tuple[int,int]], List[Tuple[Task, float]]] = {}
     rewards = {}
-    for req in transfer_reqs:
+    for req in trans_reqs:
         
         task = req.task_id
         src = req.src

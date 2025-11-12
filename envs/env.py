@@ -1,19 +1,16 @@
-import math
-from typing import List
+import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
-import numpy as np
-from envs.core.formulation import compute_delay_penalty, compute_energy_penalty
-from envs.param import COMPUTE_ENERGY_COST, DATA_COMPUTE_PENALTY, DATA_TRANSFER_PENALTY, LAYER_COMPLETION_REWARD, LAYER_OUTPUT_DATA_SIZE, LAYER_PROCESS_STEP_COST, NO_ACTION_PENALTY, NUM_LAYERS, NUM_TASKS, STEP_PER_SLOT, T_SLOT, T_STEP, TASK_COMPLETION_REWARD, TIME_PENALTY, TRANSMIT_ENERGY_COST, WRONG_EDGE_PENALTY
+from envs.param import COMPUTE_ENERGY_COST, DATA_COMPUTE_PENALTY, DATA_TRANSFER_PENALTY, LAYER_COMPLETION_REWARD, LAYER_OUTPUT_DATA_SIZE, NO_ACTION_PENALTY, NUM_TASKS, T_STEP, TASK_COMPLETION_REWARD, TRANSMIT_ENERGY_COST, WRONG_EDGE_PENALTY
 from envs.core.topology_manager import TopologyManager
 from envs.core.task_manager import TaskManager
+from envs.snapshot.request import TransReq
+from envs.core.formulation import compute_aim_reward, compute_delay_penalty, compute_energy_penalty
 from envs.core.energy import update_static_energy
 from envs.core.transmission import process_transfers
 from envs.core.computation import process_computation
-from envs.core.reward import compute_reward
 from envs.core.observation import get_observation
 from envs.core.termination import check_termination
-from envs.snapshot.request import TransReq
 
 class LEOEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
@@ -34,7 +31,7 @@ class LEOEnv(gym.Env):
 
     # 任务生成逻辑已迁移到TaskManager
 
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None):
         
         super().reset(seed=seed)
         
@@ -55,16 +52,22 @@ class LEOEnv(gym.Env):
         ), {}
 
     def step(self, actions):
+        
+        # 设置初始数值
+        action_reward = 0.0
+        truncated, terminated = False, False
+        fail_reason = None
+        trans_reqs = []
+
+        # 获取当前任务和节点状态
         tasks = self.task_manager.get_tasks()
         nodes = list(self.topology_manager.nodes.values())
+
+        # 检查动作数量是否与任务数量一致
         assert len(actions) == len(tasks)
         
         # update energy for all nodes by default
         update_static_energy(self.topology_manager.nodes)
-
-        action_reward = 0.0
-        
-        trans_reqs = []
         
         for task, act in zip(tasks, actions):
             
@@ -116,23 +119,12 @@ class LEOEnv(gym.Env):
                         )
                     )
                 else:
+                    # 传输路径不合法
                     action_reward = WRONG_EDGE_PENALTY
-
-        # 处理数据传输请求
-        process_transfers(trans_reqs, self.topology_manager.edges, self.task_manager.get_tasks())
+                    truncated = True
+                    fail_reason = "wrong_edge"
         
-        for task, act in zip(tasks, actions):
-            
-            if task.t_start > self.step_counter or task.is_done:
-                continue
-            
-            p, o = task.plane_at, task.order_at
-            node = self.topology_manager.nodes.get((p, o))
-            
-            if node is None:
-                continue
-            
-            if act == 0:
+            elif act == 0:
                 action_reward = NO_ACTION_PENALTY
                 
             elif act == 5:
@@ -149,27 +141,41 @@ class LEOEnv(gym.Env):
 
                 else:
                     action_reward = DATA_COMPUTE_PENALTY
+                    
+        # 处理数据传输请求
+        process_transfers(
+            trans_reqs=trans_reqs, 
+            edges=self.topology_manager.edges, 
+            tasks=tasks
+        )
 
-        delay_penalty = compute_delay_penalty(tasks)
-        energy_penalty = compute_energy_penalty(nodes)
+        terminated, truncated, fail_reason, action_reward = check_termination(
+            terminated=terminated, 
+            truncated=truncated, 
+            action_reward=action_reward, 
+            nodes=nodes, 
+            tasks=tasks
+        )
 
-        self.total_reward = compute_reward(action_reward, delay_penalty, energy_penalty)
+        aim_reward = compute_aim_reward(
+            delay_penalty=compute_delay_penalty(tasks),
+            energy_penalty=compute_energy_penalty(nodes)
+        )
 
-        done, success, fail_reason = check_termination(nodes, tasks)
-        
+        self.total_reward += action_reward * aim_reward
+
         obs = get_observation(self.topology_manager.nodes, self.topology_manager.num_planes, self.topology_manager.sats_per_plane, self.step_counter, tasks)
         
         info = {
             'global_time': self.step_counter,
-            'delay': delay_penalty,
-            'energy': energy_penalty,
-            'success': success,
+            'reward': self.total_reward,
+            'truncated': truncated,
             'fail_reason': fail_reason
         }
         
         self.step_counter += 1
         
-        return obs, self.total_reward, done, success, info
+        return obs, self.total_reward, terminated, truncated, info
 
     def render(self):
         from envs.renderer.visualizer import render_satellite_network
