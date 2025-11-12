@@ -1,5 +1,5 @@
 from typing import Dict, Tuple, List
-from envs.param import STEP_PER_SLOT
+from envs.param import STEP_PER_SECOND, STEP_PER_SLOT, T_SLOT
 from envs.snapshot.request import TransReq
 from envs.snapshot.task import Task
 from envs.snapshot.edge import Edge
@@ -31,7 +31,7 @@ def process_transfers(
         if not edge or edge.rate is None:
             continue
 
-        capacity = edge.rate / STEP_PER_SLOT
+        capacity = edge.rate / STEP_PER_SECOND
 
         if capacity is None:
             continue

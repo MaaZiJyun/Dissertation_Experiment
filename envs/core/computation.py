@@ -5,7 +5,6 @@ def process_computation(task: Task):
     
     state = 'in_progress'
     task.workload_done += 1
-    task.t_end += 1
 
     if task.workload_done >= LAYER_PROCESS_STEP_COST[task.layer_id]:
         

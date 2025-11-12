@@ -12,6 +12,7 @@ Each task record h = {id, layer_id, plane_at, order_at, t_start, t_end}
 
 class Task(BaseModel):
     id: int
+    act: int = 0
     layer_id: int
     plane_at: int
     order_at: int

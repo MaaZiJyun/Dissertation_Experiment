@@ -13,10 +13,11 @@ def compute_delay_penalty(tasks: List[Task]):
     :return: delay_penalty (float)
     """
     done_tasks = [t for t in tasks if t.is_done]
+    
     if not done_tasks:
         return 0.0
 
-    avg_delay = sum(max(t.t_end - t.t_start, STEP_PER_SLOT) for t in done_tasks) / len(done_tasks)
+    avg_delay = sum(min(t.t_end - t.t_start, STEP_PER_SLOT) for t in done_tasks) / len(done_tasks)
     delay_penalty = (STEP_PER_SLOT - avg_delay) / STEP_PER_SLOT
     return max(delay_penalty, 0.0)  # 防止出现负值
 

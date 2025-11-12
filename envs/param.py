@@ -5,6 +5,8 @@ import math
 T_SLOT = 32  # 每个时间槽的持续时间（秒）
 STEP_PER_SLOT = 320  # 每个时间槽的步数
 T_STEP = T_SLOT / STEP_PER_SLOT  # 每步的持续时间（秒）
+STEP_PER_SECOND = 1 / T_STEP  # 每秒的步数
+
 B_MAX = 100
 NUM_TASKS = 1
 
@@ -13,6 +15,7 @@ WEIGHT_ENERGY = 0.5
 
 # PENALTY:
 NO_ACTION_PENALTY = -5  # 每步无动作惩罚
+INTERRUPTION_PENALTY = -10  # 每步中断惩罚
 WRONG_EDGE_PENALTY = -100  # 每步错误边缘惩罚
 ENERGY_DROWN_PENALTY = -100  # 能量耗尽惩罚
 OVERTIME_PENALTY = -100  # 超时惩罚
@@ -21,7 +24,7 @@ DATA_COMPUTE_PENALTY = -1  # 数据计算惩罚
 TIME_PENALTY = -0.5  # 每步时间惩罚
 
 # REWARD:
-TASK_COMPLETION_REWARD = 50.0  # 任务完成奖励
+TASK_COMPLETION_REWARD = 100.0  # 任务完成奖励
 LAYER_COMPLETION_REWARD = 10.0  # 层完成奖励
 
 # ENERGY CONSUMPTION:
@@ -32,8 +35,14 @@ STATIC_ENERGY_COST = -0.01  # 每步静态能量消耗
 # ENERGY HARVESTING:
 ENERGY_HARVEST_AMOUNT = 0.1  # 每步能量收集量
 
-# DATA SIZE: (bits)
+# 1 Gbps = 1,000,000,000 bits per second
+# 黑白图像（1-bit）	    100,000,000 × 1	    100,000,000 bits	12.5 MB
+# 灰度图（8-bit）       100,000,000 × 8	    800,000,000 bits	100 MB
+# RGB彩色图（24-bit）   100,000,000 × 24	2,400,000,000 bits	300 MB
+# RGBA图（32-bit）      100,000,000 × 32    3,200,000,000 bits	400 MB
 IMAGE_DATA_SIZE = 2_400_000_000
+
+# DATA SIZE: (bits)
 LAYER_OUTPUT_DATA_SIZE = [
     IMAGE_DATA_SIZE, 
     IMAGE_DATA_SIZE / 1e2, 
@@ -44,7 +53,7 @@ LAYER_OUTPUT_DATA_SIZE = [
 
 # LATENCY: (steps)
 LAYER_PROCESS_SECOND_COST = [8, 5, 5, 3, 1]
-LAYER_PROCESS_STEP_COST = [math.ceil(i / T_STEP) for i in LAYER_PROCESS_SECOND_COST]
+LAYER_PROCESS_STEP_COST = [math.ceil(i * STEP_PER_SECOND) for i in LAYER_PROCESS_SECOND_COST]
 
 # NUMBER:
 NUM_LAYERS = len(LAYER_OUTPUT_DATA_SIZE)

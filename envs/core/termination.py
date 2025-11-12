@@ -1,33 +1,22 @@
 from typing import List
 
-from envs.param import OVERTIME_PENALTY, STEP_PER_SLOT, TASK_COMPLETION_REWARD
 from envs.snapshot.node import Node
 from envs.snapshot.task import Task
 
 
-def check_termination(
-    terminated: bool, 
-    truncated: bool, 
-    action_reward: float, 
-    nodes: List[Node], 
-    tasks: List[Task]
-    ):
+def all_tasks_completed(tasks: List[Task]):
+    """
+    检查所有任务是否完成
+    :param tasks: 任务列表，每个任务对象需要有 is_done 属性
+    :return: 所有任务是否完成 (bool)
+    """
+    return all(t.is_done for t in tasks)
 
-    fail_reason = None
-    reward = action_reward
+def any_satellite_depleted(nodes: List[Node]):
+    """
+    检查是否有卫星能量耗尽
+    :param nodes: 节点列表，每个节点对象需要有 energy 属性
+    :return: 是否有卫星能量耗尽 (bool)
+    """
+    return any(n.energy <= 0 for n in nodes)
 
-    if any(t.t_end >= STEP_PER_SLOT for t in tasks):
-        truncated = True
-        reward = OVERTIME_PENALTY
-        fail_reason = "over_time"
-
-    if any(n.energy <= 0 for n in nodes):
-        terminated = True
-        reward = OVERTIME_PENALTY
-        fail_reason = "energy_depleted"
-
-    elif all(t.is_done for t in tasks):
-        terminated = True
-        reward = TASK_COMPLETION_REWARD
-
-    return terminated, truncated, fail_reason, reward
