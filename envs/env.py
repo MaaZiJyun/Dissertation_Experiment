@@ -23,7 +23,7 @@ class LEOEnv(gym.Env):
         
         # parameters
         self.num_layers = 5
-        self.num_tasks = 1
+        self.num_tasks = 2
         self.t_slot = 32 #seconds per slot
         self.isl_bit_per_slot = 1_000_000_000 * self.t_slot # bits/time_slot
         self.x = 2_400_000_000 # image raw data -> bits
@@ -33,7 +33,7 @@ class LEOEnv(gym.Env):
         self.layer_output_bit = [self.x, self.x / 1e2, self.x / 1e5, self.x / 1e9, 8]
 
         # precision
-        self.step_per_slot = 100 # steps per slot
+        self.step_per_slot = 320 # steps per slot
         
         # step variables
         self.t_step = self.t_slot / self.step_per_slot # seconds per step
@@ -133,7 +133,8 @@ class LEOEnv(gym.Env):
             task_obj = Task(
                 id=_id,
                 layer_id=0, # layer id 0 means the data is raw data
-                layer_process=self.layer_process_step_cost[0],
+                layer_process=0,
+                link_process=0,
                 plane_at=_plane_at,
                 order_at=_order_at,
                 t_start=_t_start,
@@ -264,6 +265,7 @@ class LEOEnv(gym.Env):
 
                 # 全部完成
                 if task.layer_id >= self.num_layers:
+                    task.t_end = self.global_time_counter
                     task.is_done = True
                     reward = TASK_COMPLETION_REWARD
             else:
@@ -276,14 +278,22 @@ class LEOEnv(gym.Env):
             total_reward += reward
 
         # ========== (5) 计算归一化Reward ==========
-        num_tasks = len(self.tasks)
-        max_proc_cost = 3.0
-        normE = max(1e-6, num_tasks * max_proc_cost)
-        normD = max(1e-6, num_tasks * 1.0)
-        w1, w2 = 0.4, 0.6
-        delay_penalty = total_delay_cost / normD
-        energy_penalty = total_energy_cost / normE
-        total_reward -= (w1 * delay_penalty + w2 * energy_penalty)
+        num_done_task = sum(t.is_done for t in self.tasks)
+        
+        avg_delay = self.step_per_slot
+        if num_done_task > 0:
+            avg_delay = sum(t.t_end - t.t_start for t in self.tasks if t.is_done) / num_done_task
+        
+        delay_penalty = (self.step_per_slot - avg_delay) / self.step_per_slot
+        
+        avg_energy = 100
+        if num_done_task > 0:
+            avg_energy = sum(n.energy for _, n in self.nodes.items()) / len(self.nodes)
+
+        w1, w2 = 0.5, 0.5
+        energy_penalty = avg_energy / 100
+        
+        total_reward += (w1 * delay_penalty + w2 * energy_penalty)
 
         # ========== (6) 输出 ==========
         is_all_done = all(t.is_done for t in self.tasks)

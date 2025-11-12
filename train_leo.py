@@ -1,7 +1,7 @@
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
-from envs.leo_env import LEOEnv
+from envs.env import LEOEnv
 from train_leo import GymToSB3Wrapper  # if you kept that wrapper in train_leo.py
 
 JSON = "data/parsed_data.json"
