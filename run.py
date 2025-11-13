@@ -32,7 +32,7 @@ else:
     )
     
     # 训练模型
-    model.learn(total_timesteps=100000)
+    model.learn(total_timesteps=50000)
     
     # 保存模型
     model.save(model_path)

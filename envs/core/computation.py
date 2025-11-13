@@ -1,4 +1,8 @@
-from envs.param import LAYER_PROCESS_STEP_COST, NUM_LAYERS
+from typing import List
+from envs.IO.decision_manager import DecisionManager
+from envs.IO.state_manager import StateManager
+from envs.param import LAYER_COMPLETION_REWARD, LAYER_PROCESS_STEP_COST, NUM_LAYERS, TASK_COMPLETION_REWARD, TASK_COMPLETION_REWARD
+from envs.snapshot.request import CompReq
 from envs.snapshot.task import Task
 
 def process_computation(task: Task):
@@ -9,6 +13,7 @@ def process_computation(task: Task):
     if task.workload_done >= LAYER_PROCESS_STEP_COST[task.layer_id]:
         
         task.layer_id += 1
+        
         task.workload_done = 0
         state = 'layer_complete'
         
@@ -19,3 +24,43 @@ def process_computation(task: Task):
         
     
     return state
+
+def do_computing(
+    comp_reqs: List[CompReq],
+    tasks: List[Task],
+    sm: StateManager,
+    dm: DecisionManager,
+    t: int,
+):
+    rewards = 0.0
+    
+    for req in comp_reqs: 
+        m = req.task_id
+        n = sm.get_progress(m)
+        target = LAYER_PROCESS_STEP_COST[n]
+        
+        task = next((task for task in tasks if task.id == m), None)
+        if task is None:
+            continue
+
+        # 更新计算进度
+        req.workload_done += 1
+        sm.write_workload(m=m, n=n, value=req.workload_done)
+        task.workload_done += 1
+
+        # 当前已经计算的量
+        sent_data = sm.sum_workload_before(m=m, n=n, T=t)
+
+        # 检查是否完成计算
+        if sent_data >= target:
+            # 计算完成，更新任务位置
+            sm.write_progress(m=m, value=n+1)
+            task.layer_id += 1
+            task.workload_done = 0.0
+            rewards += LAYER_COMPLETION_REWARD
+            
+            if task.layer_id >= NUM_LAYERS:
+                task.is_done = True
+                rewards += TASK_COMPLETION_REWARD
+
+    return rewards

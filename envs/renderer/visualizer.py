@@ -4,7 +4,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.cm as cm
 import numpy as np
 
-from envs.core.topology_manager import TopologyManager
+from envs.core.json_manager import JsonManager
 from envs.param import STEP_PER_SECOND, T_STEP
 from envs.snapshot.task import Task
 
@@ -12,7 +12,7 @@ _fig = None
 _ax = None
 
 def render_satellite_network(
-    topology: TopologyManager, 
+    topology: JsonManager, 
     tasks: List[Task], 
     step_counter: int, 
 ):

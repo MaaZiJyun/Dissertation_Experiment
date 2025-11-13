@@ -11,10 +11,10 @@ class TransReq(BaseModel):
 
 class CompReq(BaseModel):
     task_id: int
-    node_id: int
+    node_id: tuple[int, int]
     layer_id: int
-    target_workload: float
-    workload_done : float = 0.0
+    target_workload: int
+    workload_done : int = 0.0
     step: int = 0
     
     

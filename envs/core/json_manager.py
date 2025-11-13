@@ -5,19 +5,28 @@ from typing import Dict, Tuple, List
 from envs.snapshot.node import Node
 from envs.snapshot.edge import Edge
 
-class TopologyManager:
+class JsonManager:
     def __init__(self, json_path: str):
         self.json_path = Path(json_path)
         self.nodes: Dict[Tuple[int, int], Node] = {}
         self.edges: Dict[Tuple[Tuple[int, int], Tuple[int, int]], Edge] = {}
-        self.planes = []
-        self.sats_per_plane = 0
-        self.num_planes = 0
-        self._load_topology()
-
-    def _load_topology(self):
+        self.N_SAT = 0
+        self.N_PLANE = 0
+        self._load_json_from_file()
+        
+    def reset(self):
+        self.nodes.clear()
+        self.edges.clear()
+        self.N_SAT = 0
+        self.N_PLANE = 0
+        self._load_json_from_file()
+        
+    def _load_json_from_file(self) -> dict:
         with open(self.json_path, 'r') as f:
             data = json.load(f)
+        self._convert(data)
+
+    def _convert(self, data: dict):
         index_map = {}
         for node in data.get('nodes', []):
             pid = int(node['plane_id'])
@@ -35,6 +44,7 @@ class TopologyManager:
             self.nodes[(pid, sid)] = node_obj
             if 'index' in node:
                 index_map[node['index']] = (pid, sid)
+                
         for edge in data.get('edges', []):
             uid = edge['u']
             vid = edge['v']
@@ -51,9 +61,20 @@ class TopologyManager:
             })
             self.edges[(index_map[uid], index_map[vid])] = edge_obj
             self.edges[(index_map[vid], index_map[uid])] = edge_obj
-        self.planes = sorted({p for (p, s) in self.nodes.keys()})
-        self.sats_per_plane = max(s for (p, s) in self.nodes.keys()) + 1 if self.nodes else 0
-        self.num_planes = max(self.planes) + 1 if self.planes else 0
+        self.N_SAT = max(s for (p, s) in self.nodes.keys()) + 1 if self.nodes else 0
+        self.N_PLANE = max(p for (p, s) in self.nodes.keys()) + 1 if self.nodes else 0
+        
+    def get_nodes(self) -> List[Node]:
+        return list(self.nodes.values())
+    
+    def get_edges(self) -> List[Edge]:
+        return list(self.edges.values())
+    
+    def get_node_keys(self) -> List[Tuple[int, int]]:
+        return list(self.nodes.keys())
+    
+    def get_edge_keys(self) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
+        return list(self.edges.keys())
 
     def connected(self, u, v):
         return (u, v) in self.edges
