@@ -10,7 +10,7 @@ import numpy as np
 def all_tasks_overtimed(tasks: List[Task]):
     result = False
     if len(tasks) > 0:
-        result = all(t.t_end > STEP_PER_SLOT for t in tasks)
+        result = all((t.t_end - t.t_start) > STEP_PER_SLOT for t in tasks)
     return result
 
 def any_illegal_link(sm: StateManager, dm: DecisionManager):

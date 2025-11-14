@@ -6,11 +6,11 @@ from envs.IO.decision_manager import DecisionManager
 from envs.IO.state_manager import StateManager
 from envs.core.termination import all_tasks_completed, any_satellite_depleted
 from envs.core.truncation import all_tasks_overtimed, any_illegal_link
-from envs.param import COMPUTE_ENERGY_COST, INTERRUPTION_PENALTY, LAYER_OUTPUT_DATA_SIZE, LAYER_PROCESS_STEP_COST, NO_ACTION_PENALTY, MAX_NUM_TASKS, TRANSMIT_ENERGY_COST
+from envs.param import ALL_TASK_COMPLETION_REWARD, COMPUTE_ENERGY_COST, ENERGY_DROWN_PENALTY, INTERRUPTION_PENALTY, LAYER_OUTPUT_DATA_SIZE, LAYER_PROCESS_STEP_COST, NO_ACTION_PENALTY, MAX_NUM_TASKS, OVERTIME_PENALTY, OVERTIME_PENALTY, TASK_COMPLETION_REWARD, TRANSMIT_ENERGY_COST, WRONG_EDGE_PENALTY
 from envs.core.json_manager import JsonManager
 from envs.core.task_manager import TaskManager
 from envs.snapshot.request import CompReq, TransReq
-from envs.core.formulation import compute_aim_reward, compute_delay_penalty, compute_energy_penalty
+from envs.core.formulation import compute_aim_reward, compute_delay_penalty, compute_energy_penalty, settle_reward
 from envs.core.energy import update_static_energy
 from envs.core.transmission import do_transferring
 from envs.core.computation import do_computing
@@ -96,6 +96,7 @@ class LEOEnv(gym.Env):
 
     def step(self, actions):
         # 初始化数值
+        self.DM.reset()
         action_reward = 0.0
         trans_reqs: List[TransReq] = []
         comp_reqs: List[CompReq] = []
@@ -129,11 +130,11 @@ class LEOEnv(gym.Env):
             if node is None:
                 continue
 
-            # movement actions
             if act in [1, 2, 3, 4]:
+                # movement actions
                 if task.workload_done > 0:
                     action_reward += INTERRUPTION_PENALTY
-                if task.data_sent > 0 and task.act != act:
+                if task.data_sent > 0 and task.acted != act:
                     action_reward += INTERRUPTION_PENALTY
 
                 if act == 1:
@@ -160,44 +161,56 @@ class LEOEnv(gym.Env):
 
             elif act == 5:
                 # compute action
-                data_bits = LAYER_OUTPUT_DATA_SIZE[task.layer_id]
-                self.DM.write_pi(p=p, o=o, n=task.layer_id, m=task.id, value=True)
-                node.energy = max(node.energy + COMPUTE_ENERGY_COST, 0.0)
-                self.SM.write_energy(p=p, o=o, value=node.energy)
-                comp_reqs.append(
-                    CompReq(
-                        task_id=task.id,
-                        node_id=(p, o),
-                        layer_id=task.layer_id,
-                        target_workload=LAYER_PROCESS_STEP_COST[task.layer_id],
-                        workload_done=task.workload_done,
+                if task.data_sent > 0:
+                    action_reward += INTERRUPTION_PENALTY
+                if task.workload_done > 0 and task.acted != act:
+                    action_reward += INTERRUPTION_PENALTY
+
+                is_occupied = self.DM.is_po_occupied(p=p, o=o)
+                if not is_occupied:
+                    workload = LAYER_PROCESS_STEP_COST[task.layer_id]
+                    self.DM.write_pi(p=p, o=o, n=task.layer_id, m=task.id, value=True)
+                    node.energy = max(node.energy + COMPUTE_ENERGY_COST, 0.0)
+                    self.SM.write_energy(p=p, o=o, value=node.energy)
+                    comp_reqs.append(
+                        CompReq(
+                            task_id=task.id,
+                            node_id=(p, o),
+                            layer_id=task.layer_id,
+                            target_workload=workload,
+                            workload_done=task.workload_done,
+                        )
                     )
-                )
-                self.SM.write_size(m=task.id, n=task.layer_id, value=data_bits)
+                else:
+                    action_reward += NO_ACTION_PENALTY
 
             task.t_end += 1
-            task.act = act
+            task.acted = act
 
         # 执行传输与计算
         action_reward += do_transferring(tasks=tasks, trans_reqs=trans_reqs, sm=self.SM, dm=self.DM, t=self.step_counter)
         action_reward += do_computing(comp_reqs=comp_reqs, tasks=tasks, sm=self.SM, dm=self.DM, t=self.step_counter)
 
         # 计算目标与最终 reward
-        aim_reward = compute_aim_reward(delay_penalty=compute_delay_penalty(tasks), energy_penalty=compute_energy_penalty(nodes))
+        aim_reward = settle_reward(delay_penalty=compute_delay_penalty(tasks), energy_penalty=compute_energy_penalty(nodes))
         reward = action_reward + aim_reward
 
         # 终止/截断判定
         if all_tasks_completed(tasks):
+            action_reward += ALL_TASK_COMPLETION_REWARD
             terminated = True
             terminated_reason = "all_tasks_completed"
         elif any_satellite_depleted(nodes):
+            action_reward += ENERGY_DROWN_PENALTY
             terminated = True
             terminated_reason = "satellite_energy_depleted"
 
         if all_tasks_overtimed(tasks):
+            action_reward += OVERTIME_PENALTY
             truncated = True
             truncated_reason = "all_tasks_overtimed"
         elif any_illegal_link(self.SM, self.DM):
+            action_reward += WRONG_EDGE_PENALTY
             truncated = True
             truncated_reason = "any_illegal_link"
 

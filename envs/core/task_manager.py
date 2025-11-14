@@ -26,7 +26,7 @@ class TaskManager:
                 order_at=_order_at,
                 t_start=_t,
                 t_end=_t,
-                act=0,
+                acted=0,
                 workload_done=0,
                 data_sent=0,
                 is_done=False

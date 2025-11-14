@@ -5,7 +5,7 @@ import matplotlib.cm as cm
 import numpy as np
 
 from envs.core.json_manager import JsonManager
-from envs.param import STEP_PER_SECOND, T_STEP
+from envs.param import STEP_PER_SECOND, STEP_PER_SLOT, T_STEP
 from envs.snapshot.edge import Edge
 from envs.snapshot.node import Node
 from envs.snapshot.task import Task
@@ -21,7 +21,7 @@ def render_satellite_network(
 ):
     global _fig, _ax
     if _fig is None or _ax is None:
-        _fig = plt.figure(figsize=(8, 6))
+        _fig = plt.figure(figsize=(16, 10))
         _ax = _fig.add_subplot(111, projection='3d')
     else:
         _ax.cla()
@@ -32,9 +32,9 @@ def render_satellite_network(
         ys.append(node.y)
         zs.append(node.z)
         colors.append('green' if node.gamma else 'gray')
-        # ax.text(node.x, node.y, node.z-2,
-        #     f'{node.energy:.1f}:[{p},{o}]',
-        #     color='black', fontsize=8, ha='center', va='top', alpha=0.7)
+        ax.text(node.x, node.y, node.z-2,
+            f'{node.energy:.1f}:[{node.plane_id},{node.order_id}]',
+            color='black', fontsize=8, ha='center', va='top', alpha=0.7)
     ax.scatter(xs, ys, zs, c=colors, s=40, label='Satellites')
     for edge in edges:
         u = edge.u
@@ -44,8 +44,8 @@ def render_satellite_network(
     for i, task in enumerate(tasks):
         node = next((n for n in nodes if n.plane_id == task.plane_at and n.order_id == task.order_at), None)
         if node is not None:
-            ax.scatter([node.x], [node.y], [node.z], color=task_colors[i], s=120, marker='o', label=f'Task {task.id}')
-            ax.text(node.x, node.y, node.z+2, f'm={task.id}, n={task.layer_id}, ts={task.t_start / STEP_PER_SECOND}, td={task.t_end / STEP_PER_SECOND}: [{task.act}] ({task.workload_done}|{task.data_sent})', color=task_colors[i], fontsize=9)
+            ax.scatter([node.x], [node.y], [node.z], color=task_colors[i], s=120, marker='o', label=f'Task {task.id}:[{task.layer_id}], delay={task.t_end / STEP_PER_SECOND}')
+            ax.text(node.x, node.y, node.z+2, f'm={task.id}, n={task.layer_id}, action:[{task.acted}]', color=task_colors[i], fontsize=9)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')

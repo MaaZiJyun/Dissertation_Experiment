@@ -42,6 +42,7 @@ class StateManager:
             src_p, src_o = e.u.plane_id, e.u.order_id
             dst_p, dst_o = e.v.plane_id, e.v.order_id
             self.comm[src_p, src_o, dst_p, dst_o] = e.rate
+            self.comm[dst_p, dst_o, src_p, src_o] = e.rate
 
         for t in all_tasks:
             self.location[t.id, 0] = t.plane_at

@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 from envs.param import MAX_NUM_LAYERS, MAX_NUM_TASKS
 
@@ -42,6 +42,16 @@ class DecisionManager:
         
     def get_rho(self, u: Tuple[int, int], v: Tuple[int, int], n: int, m: int):
         return self.rho[u[0], u[1], v[0], v[1], m, n]
+    
+    def get_pi(self, p: int, o: int, n: int, m: int):
+        return self.pi[p, o, m, n]
+
+    def is_po_occupied(self, p: int, o: int) -> bool:
+        for mm in range(self._M):
+            for nn in range(MAX_NUM_LAYERS):
+                if self.pi[p, o, mm, nn]:
+                    return True
+        return False
 
     def get_rho_by_uv(self, u: Tuple[int, int], v: Tuple[int, int]) -> Dict[Tuple[int, int], bool]:
         result = {}

@@ -20,7 +20,7 @@ class Task(BaseModel):
     t_end: int
     
     # functional counters
-    act: int = 0 # to record action taken
+    acted: int = 0 # to record action taken
     workload_done: int = 0 # to record computation progress
     data_sent : int = 0 # to record transmission progress
     is_done: bool = False
