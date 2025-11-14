@@ -1,0 +1,14 @@
+{
+  "nodes": [
+    {"index": 0, "plane_id": 0, "order_id": 0, "gamma": 1, "x": 0.0, "y": 0.0, "z": 0.0},
+    {"index": 1, "plane_id": 0, "order_id": 1, "gamma": 0, "x": 1.0, "y": 0.0, "z": 0.0},
+    {"index": 2, "plane_id": 1, "order_id": 0, "gamma": 0, "x": 0.0, "y": 1.0, "z": 0.0},
+    {"index": 3, "plane_id": 1, "order_id": 1, "gamma": 0, "x": 1.0, "y": 1.0, "z": 0.0}
+  ],
+  "edges": [
+    {"index": 0, "u": 0, "v": 1, "rate": 1.0},
+    {"index": 1, "u": 1, "v": 2, "rate": 1.0},
+    {"index": 2, "u": 2, "v": 3, "rate": 1.0},
+    {"index": 3, "u": 3, "v": 0, "rate": 1.0}
+  ]
+}

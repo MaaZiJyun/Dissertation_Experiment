@@ -1,59 +1,70 @@
 import numpy as np
 from typing import Dict, List, Tuple
 
-from envs.param import LAYER_OUTPUT_DATA_SIZE, LAYER_PROCESS_STEP_COST, NUM_LAYERS
+from envs.param import MAX_NUM_LAYERS, MAX_NUM_TASKS
 from envs.snapshot.edge import Edge
 from envs.snapshot.node import Node
 from envs.snapshot.task import Task
 
 class StateManager:
-    def __init__(self):
+    def __init__(self, p_max: int, o_max: int):
+        # active task count
+        self._M = 0
+        # history buffer for snapshots
+        self._beta: Dict[int, Dict[str, np.ndarray]] = {}
 
-        self.P = 0
-        self.O = 0
-        self.M = 0
-        self.N = NUM_LAYERS
-        self.beta_history = {}
+        # size limits
+        self.P_MAX = p_max
+        self.O_MAX = o_max
+        self.N_MAX = MAX_NUM_LAYERS
+        self.M_MAX = MAX_NUM_TASKS
+
+        # For topology (full-shape)
+        self.energy = np.zeros((self.P_MAX, self.O_MAX), dtype=np.float32)
+        self.sunlight = np.zeros((self.P_MAX, self.O_MAX), dtype=np.int8)
+        self.comm = np.zeros((self.P_MAX, self.O_MAX, self.P_MAX, self.O_MAX), dtype=np.float32)
+
+        # For tasks: preallocate using M_MAX (active task count is tracked by self._M)
+        self.location = np.zeros((self.M_MAX, 2), dtype=np.int32)
+        self.progress = np.zeros(self.M_MAX, dtype=np.int32)
+        self.size = np.zeros((self.M_MAX, self.N_MAX), dtype=np.float32)
+        self.workload = np.zeros((self.M_MAX, self.N_MAX), dtype=np.int32)
+
+
+    def setup(self, all_nodes: List[Node], all_edges: List[Edge], all_tasks: List[Task]):
         
-        
-    def initialize(self, p: int, o: int, nodes: List[Node], edges: List[Edge], tasks: List[Task]):
-        self.P = p
-        self.O = o
-        self.M = len(tasks)
-        self.N = NUM_LAYERS
-
-        self.energy = np.zeros((self.P, self.O), dtype=np.float32)
-        self.sunlight = np.zeros((self.P, self.O), dtype=np.int8)
-        # comm is a 4-D array indexed by [src_p, src_o, dst_p, dst_o]
-        self.comm = np.zeros((self.P, self.O, self.P, self.O), dtype=np.float32)
-        # location: for each task store (plane, order)
-        self.location = np.zeros((self.M, 2), dtype=np.int32)
-        self.progress = np.zeros(self.M, dtype=np.int32)
-        self.size = np.zeros((self.M, self.N), dtype=np.float32)
-        self.workload = np.zeros((self.M, self.N), dtype=np.int32)
-
-        for n in nodes:
+        for n in all_nodes:
             pp, oo = n.plane_id, n.order_id
             self.energy[pp, oo] = n.energy
             self.sunlight[pp, oo] = n.gamma
 
-        for e in edges:
+        for e in all_edges:
             src_p, src_o = e.u.plane_id, e.u.order_id
             dst_p, dst_o = e.v.plane_id, e.v.order_id
             self.comm[src_p, src_o, dst_p, dst_o] = e.rate
 
-        for t in tasks:
-            if t.id < self.M:
-                self.location[t.id, 0] = t.plane_at
-                self.location[t.id, 1] = t.order_at
-                self.progress[t.id] = t.layer_id
+        for t in all_tasks:
+            self.location[t.id, 0] = t.plane_at
+            self.location[t.id, 1] = t.order_at
+            self.progress[t.id] = t.layer_id
             
-    def reset(self):
-        self.beta_history.clear()
-
-    def update(self, step: int):
-        self.beta_history[step] = self._to_beta()
+    def update(self, current_task_length: int):
+        self._M = current_task_length
         
+    def report(self, step: int) -> Dict[str, np.ndarray]:
+        beta_t = self._to_beta()
+        self._beta[step] = beta_t
+        return beta_t
+
+    def reset(self):
+        self.energy.fill(0)
+        self.sunlight.fill(0)
+        self.comm.fill(0)
+        self.location.fill(0)
+        self.progress.fill(0)
+        self.size.fill(0)
+        self.workload.fill(0)
+
     def write_energy(self, p: int, o: int, value: float):
         self.energy[(p, o)] = value
         
@@ -66,8 +77,9 @@ class StateManager:
         self.comm[up, uo, vp, vo] = value
         
     def write_location(self, m: int, value: Tuple[int, int]):
-        self.location[m] = value
-        
+        self.location[m,0] = value[0]
+        self.location[m,1] = value[1]
+
     def write_progress(self, m: int, value: int):
         self.progress[m] = value
         
@@ -92,19 +104,38 @@ class StateManager:
         return tuple(self.location[m])
     
     def _to_beta(self) -> Dict[str, np.ndarray]:
+        """Return a snapshot of current state (beta) with topology full-shape
+        and task arrays limited to the first self._M active tasks.
+        """
+        # topology arrays (full shape)
+        valid_energy = self.energy.copy()
+        valid_sunlight = self.sunlight.copy()
+        valid_comm = self.comm.copy()
+
+        # task arrays: take first self._M rows
+        if self._M <= 0:
+            # return empty task arrays with shape (0,...)
+            valid_location = np.zeros((0, 2), dtype=self.location.dtype)
+            valid_progress = np.zeros((0,), dtype=self.progress.dtype)
+            valid_size = np.zeros((0, self.N_MAX), dtype=self.size.dtype)
+            valid_workload = np.zeros((0, self.N_MAX), dtype=self.workload.dtype)
+        else:
+            valid_location = self.location[: self._M].copy()
+            valid_progress = self.progress[: self._M].copy()
+            valid_size = self.size[: self._M].copy()
+            valid_workload = self.workload[: self._M].copy()
+
         beta_t = {
-            "energy": self.energy.copy(),
-            "sunlight": self.sunlight.copy(),
-            "comm": self.comm.copy(),
-            "location": self.location.copy(),
-            "progress": self.progress.copy(),
-            "size": self.size.copy(),
-            "workload": self.workload.copy(),
+            "energy": valid_energy,
+            "sunlight": valid_sunlight,
+            "comm": valid_comm,
+            "location": valid_location,
+            "progress": valid_progress,
+            "size": valid_size,
+            "workload": valid_workload,
         }
+
         return beta_t
-    
-    def beta_at(self, step: int) -> Dict[str, np.ndarray]:
-        return self.beta_history.get(step, None)
 
     def sum_size_before(self, m: int, n: int, T: int) -> float:
         """
@@ -112,9 +143,15 @@ class StateManager:
         """
         result = 0.0
         for t in range(T):
-            beta = self.beta_history.get(t)
-            if beta is not None:
-                result += beta["size"][m, n]
+            beta = self._beta.get(t)
+            if beta is None:
+                continue
+            arr = beta.get("size")
+            if arr is None:
+                continue
+            # ensure indices are in range
+            if arr.ndim >= 2 and m < arr.shape[0] and n < arr.shape[1]:
+                result += float(arr[m, n])
         return result
 
     def sum_workload_before(self, m: int, n: int, T: int) -> float:
@@ -123,9 +160,14 @@ class StateManager:
         """
         result = 0.0
         for t in range(T):
-            beta = self.beta_history.get(t)
-            if beta is not None:
-                result += beta["workload"][m, n]
+            beta = self._beta.get(t)
+            if beta is None:
+                continue
+            arr = beta.get("workload")
+            if arr is None:
+                continue
+            if arr.ndim >= 2 and m < arr.shape[0] and n < arr.shape[1]:
+                result += float(arr[m, n])
         return result
     
     def is_empty(self) -> bool:
@@ -133,4 +175,4 @@ class StateManager:
         检查状态管理器是否为空（没有初始化数据）。
         :return: 是否为空 (bool)
         """
-        return self.P == 0 or self.O == 0 or self.M == 0 or self.N == 0
+        return self._M == 0

@@ -1,7 +1,7 @@
 from typing import List
 from envs.IO.decision_manager import DecisionManager
 from envs.IO.state_manager import StateManager
-from envs.param import LAYER_COMPLETION_REWARD, LAYER_PROCESS_STEP_COST, NUM_LAYERS, TASK_COMPLETION_REWARD, TASK_COMPLETION_REWARD
+from envs.param import LAYER_COMPLETION_REWARD, LAYER_PROCESS_STEP_COST, MAX_NUM_LAYERS, TASK_COMPLETION_REWARD, TASK_COMPLETION_REWARD
 from envs.snapshot.request import CompReq
 from envs.snapshot.task import Task
 
@@ -17,7 +17,7 @@ def process_computation(task: Task):
         task.workload_done = 0
         state = 'layer_complete'
         
-        if task.layer_id >= NUM_LAYERS:
+        if task.layer_id >= MAX_NUM_LAYERS:
             
             task.is_done = True
             state = 'done'
@@ -59,7 +59,7 @@ def do_computing(
             task.workload_done = 0.0
             rewards += LAYER_COMPLETION_REWARD
             
-            if task.layer_id >= NUM_LAYERS:
+            if task.layer_id >= MAX_NUM_LAYERS:
                 task.is_done = True
                 rewards += TASK_COMPLETION_REWARD
 

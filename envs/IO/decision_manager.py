@@ -1,35 +1,34 @@
 import numpy as np
 from typing import Dict, Tuple
 
-from envs.param import NUM_LAYERS
+from envs.param import MAX_NUM_LAYERS, MAX_NUM_TASKS
 
 
 class DecisionManager:
-    def __init__(self):
+    def __init__(self, p_max: int, o_max: int):
         
-        # placeholders for shapes
-        self.P = 0
-        self.O = 0
-        self.M = 0
-        self.N = NUM_LAYERS
-        self.alpha_history = {}
+        self._M = 0
+        self._alpha = {}
 
+        self.P_MAX = p_max
+        self.O_MAX = o_max
+        self.N_MAX = MAX_NUM_LAYERS
+        self.M_MAX = MAX_NUM_TASKS
+        
+        self.pi = np.zeros((self.P_MAX, self.O_MAX, self.M_MAX, self.N_MAX), dtype=np.int8)
+        self.rho = np.zeros((self.P_MAX, self.O_MAX, self.P_MAX, self.O_MAX, self.M_MAX, self.N_MAX), dtype=np.int8)
 
-    def initialize(self, p: int, o: int, m: int):
-        """Initialize internal arrays.
-
-        pi shape: (P, O, M, N)    -> per-satellite compute allocation
-        rho shape: (P, O, P, O, M, N) -> per-link (src p,o -> dst p,o) per-task per-layer
-        """
-        self.P = p
-        self.O = o
-        self.M = m
-        self.N = NUM_LAYERS
-        self.pi = np.zeros((self.P, self.O, self.M, self.N), dtype=np.int8)
-        self.rho = np.zeros((self.P, self.O, self.P, self.O, self.M, self.N), dtype=np.int8)
-
+    def update(self, current_task_length: int):
+        self._M = current_task_length
+        
+    def report(self, step: int) -> Dict[str, np.ndarray]:
+        alpha_t = self._to_alpha()
+        self._alpha[step] = alpha_t
+        return alpha_t
+        
     def reset(self):
-        self.alpha_history.clear()
+        self.pi.fill(0)
+        self.rho.fill(0)
 
     def write_pi(self, p: int, o: int, n: int, m: int, value: int):
         # p,o are plane and order indices; m is task index; n is layer index
@@ -49,28 +48,29 @@ class DecisionManager:
         up, uo = u
         vp, vo = v
         # iterate over tasks and layers
-        for mm in range(self.M):
-            for nn in range(NUM_LAYERS):
+        for mm in range(self._M):
+            for nn in range(MAX_NUM_LAYERS):
                 value = self.rho[up, uo, vp, vo, mm, nn]
                 result[(mm, nn)] = bool(value)
         return result
 
-    def update(self, step: int):
-        self.alpha_history[step] = self._to_alpha()
-
     def _to_alpha(self) -> Dict[str, np.ndarray]:
+        # slice by task count on the M axis and copy to make a snapshot
+        if self._M <= 0:
+            valid_pi = np.zeros((self.P_MAX, self.O_MAX, 0, self.N_MAX), dtype=np.int8)
+            valid_rho = np.zeros((self.P_MAX, self.O_MAX, self.P_MAX, self.O_MAX, 0, self.N_MAX), dtype=np.int8)
+        else:
+            valid_pi = self.pi[:, :, :self._M, :].copy()   # shape (P_MAX,O_MAX,_M,N_MAX)
+            valid_rho = self.rho[:, :, :, :, :self._M, :].copy()  # shape (P_MAX,O_MAX,P_MAX,O_MAX,_M,N_MAX)
         alpha_t = {
-            "pi": self.pi.copy(),
-            "rho": self.rho.copy(),
+            "pi": valid_pi,
+            "rho": valid_rho,
         }
         return alpha_t
-
-    def alpha_at(self, step: int) -> Dict[str, np.ndarray]:
-        return self.alpha_history.get(step, None)
     
     def is_empty(self) -> bool:
         """
         检查决策管理器是否为空（没有初始化数据）。
         :return: 是否为空 (bool)
         """
-        return self.P == 0 or self.O == 0 or self.M == 0 or self.N == 0
+        return self._M == 0

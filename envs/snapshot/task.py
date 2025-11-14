@@ -1,13 +1,14 @@
+from typing import Dict
 from pydantic import BaseModel
 
 """
-Each task record h = {id, layer_id, plane_at, order_at, t_start, t_end} 
-- id: task index
-- layer_id: current layer index
-- plane_at: plane index
-- order_at: satellite index
-- t_start: float
-- t_end: float
+Each task record Z = {m, n, p, o, start, end} 
+- m: task index
+- n: layer index
+- p: plane index
+- o: satellite index
+- start: int
+- end: int
 """
 
 class Task(BaseModel):

@@ -1,69 +1,57 @@
 import numpy as np
-from typing import List
+from typing import Dict, Tuple
 from envs.IO.decision_manager import DecisionManager
 from envs.IO.state_manager import StateManager
-from envs.snapshot.task import Task
-from envs.param import MAX_TASKS
+from envs.snapshot.info import Info
+
+def get_obs(sm: StateManager, dm: DecisionManager, step: int) -> Tuple[Dict[str, np.ndarray], Info]:
+    # ======== 从状态管理器提取状态空间 β_t ========
+    beta_t = sm.report(step)
+    
+    # --- 可选的归一化与转换 ---
+    # 这些超参数可在外部定义，如 B_MAX、R_MAX、MAX_NUM_LAYERS 等
+
+    def _safe_normalize(arr: np.ndarray) -> np.ndarray:
+        a = np.asarray(arr)
+        if a.size == 0:
+            return a
+        maxv = float(np.max(a)) if a.size > 0 else 0.0
+        if maxv == 0.0:
+            return a.astype(np.float32)
+        return (a / (maxv + 1e-6)).astype(np.float32)
+
+    # pad task arrays to fixed M_MAX to keep observation shapes stable
+    M_MAX = getattr(sm, "M_MAX", beta_t.get("size", np.zeros((0,))).shape[0])
+
+    def _pad(arr: np.ndarray, target_shape: tuple, fill=0.0):
+        a = np.asarray(arr)
+        out = np.full(target_shape, fill, dtype=np.float32)
+        # compute slice sizes
+        slices = tuple(slice(0, min(s, t)) for s, t in zip(a.shape, target_shape))
+        out[slices] = a[tuple(slice(0, s) for s in a.shape)]
+        return out
+
+    obs = {
+        "energy": np.asarray(_safe_normalize(beta_t["energy"]), dtype=np.float32),
+        "sunlight": np.asarray(beta_t["sunlight"], dtype=np.float32),
+        "comm": np.asarray(_safe_normalize(beta_t["comm"]), dtype=np.float32),
+        "location": _pad(beta_t.get("location", np.zeros((0, 2))), (M_MAX, 2)),
+        "progress": _pad(beta_t.get("progress", np.zeros((0,))), (M_MAX,)),
+        "size": _pad(beta_t.get("size", np.zeros((0, sm.N_MAX))), (M_MAX, sm.N_MAX)),
+        "workload": _pad(beta_t.get("workload", np.zeros((0, sm.N_MAX))), (M_MAX, sm.N_MAX)),
+    }
+
+    # ======== 从决策管理器提取动作空间 α_t ========
+    alpha_t = dm.report(step)
+
+    # return obs and a plain debug dict; env will build a snapshot Info object later
+    info = {
+        "alpha": alpha_t,
+        "beta": beta_t,
+        "step": step,
+    }
+
+    return obs, info
 
 
-def _flatten_matrix(mat: np.ndarray) -> List[float]:
-    return list(mat.ravel().astype(np.float32))
-
-
-def get_obs(sm: StateManager, dm: DecisionManager, tasks: List[Task]) -> np.ndarray:
-    """Construct observation vector from StateManager and DecisionManager.
-
-    Layout (concatenated):
-    - energy: P*O
-    - sunlight: P*O
-    - comm (flattened): (P*O)*(P*O) (log-scaled)
-    - per-task states: for each task: id, layer_id, plane_at, order_at, t_start, t_end, is_done, workload_done, data_sent
-    - pi (flattened)
-    - rho (flattened)
-    """
-    parts: List[float] = []
-
-    # energy and sunlight
-    parts.extend(list(sm.energy.ravel().astype(np.float32)))
-    parts.extend(list(sm.sunlight.ravel().astype(np.float32)))
-
-    # comm: apply small log scaling to stabilize magnitudes (add eps)
-    comm = sm.comm.astype(np.float32)
-    eps = 1e-9
-    comm_log = np.log1p(comm + eps)
-    parts.extend(_flatten_matrix(comm_log))
-
-    # tasks: include fixed MAX_TASKS slots (pad with zeros)
-    num_slots = getattr(dm, 'M', MAX_TASKS)
-    for idx in range(num_slots):
-        if idx < len(tasks):
-            t = tasks[idx]
-            parts.extend([
-                int(t.id),
-                int(t.layer_id),
-                int(t.plane_at),
-                int(t.order_at),
-                int(t.t_start),
-                int(t.t_end),
-                1.0 if t.is_done else 0.0,
-                int(getattr(t, 'workload_done', 0)),
-                float(getattr(t, 'data_sent', 0)),
-            ])
-        else:
-            # padding for empty task slots
-            parts.extend([0.0] * 9)
-
-    # decision pi and rho: flatten
-    # decision pi and rho: flatten using their defined shapes to keep obs size stable
-    if hasattr(dm, 'pi') and dm.pi is not None:
-        parts.extend(list(dm.pi.ravel().astype(np.float32)))
-    else:
-        parts.extend([0.0] * (MAX_TASKS * 1 * 1 * getattr(dm, 'N', 0)))
-
-    if hasattr(dm, 'rho') and dm.rho is not None:
-        parts.extend(list(dm.rho.ravel().astype(np.float32)))
-    else:
-        # shape (P,O,P,O,M,N) -> length = P*O*P*O*M*N but fallback to 0
-        parts.extend([0.0] * 0)
-
-    return np.array(parts, dtype=np.float32)
+    

@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 from typing import Dict, Tuple, List
+
+import numpy as np
 from envs.snapshot.node import Node
 from envs.snapshot.edge import Edge
 
@@ -35,7 +37,7 @@ class JsonManager:
                 'id': node.get('index', -1),
                 'plane_id': pid,
                 'order_id': sid,
-                'energy': node.get('energy', 100.0),
+                'energy': float(np.random.uniform(80, 100)),
                 'gamma': bool(int(node.get('gamma', 0))),
                 'x': node.get('x', 0.0),
                 'y': node.get('y', 0.0),

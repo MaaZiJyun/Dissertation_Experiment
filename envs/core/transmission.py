@@ -102,8 +102,8 @@ def do_transferring(
 
         # 检查是否完成传输
         if sent_data >= target:
-            # 传输完成，更新任务位置
-            sm.write_location(m=m, value=(src, dst))
+            # 传输完成，更新任务位置 (write destination coordinates)
+            sm.write_location(m=m, value=dst)
             task.plane_at, task.order_at = dst
             task.data_sent = 0.0
 
