@@ -9,6 +9,7 @@ from envs.core.truncation import all_tasks_overtimed, any_illegal_link
 from envs.param import ALL_TASK_COMPLETION_REWARD, COMPUTE_ENERGY_COST, ENERGY_DROWN_PENALTY, INTERRUPTION_PENALTY, LAYER_OUTPUT_DATA_SIZE, LAYER_PROCESS_STEP_COST, NO_ACTION_PENALTY, MAX_NUM_TASKS, OVERTIME_PENALTY, OVERTIME_PENALTY, TASK_COMPLETION_REWARD, TRANSMIT_ENERGY_COST, WRONG_EDGE_PENALTY
 from envs.core.json_manager import JsonManager
 from envs.core.task_manager import TaskManager
+from envs.renderer.visualizer import render_satellite_network
 from envs.snapshot.request import CompReq, TransReq
 from envs.core.formulation import compute_aim_reward, compute_delay_penalty, compute_energy_penalty, settle_reward
 from envs.core.energy import update_static_energy
@@ -50,6 +51,7 @@ class LEOEnv(gym.Env):
             "progress": spaces.Box(low=-np.inf, high=np.inf, shape=(m,), dtype=np.float32),
             "size": spaces.Box(low=-np.inf, high=np.inf, shape=(m, n), dtype=np.float32),
             "workload": spaces.Box(low=-np.inf, high=np.inf, shape=(m, n), dtype=np.float32),
+            "action_mask": spaces.MultiBinary((m, 6)),
         }
         self.observation_space = spaces.Dict(obs_spaces)
 
@@ -58,13 +60,14 @@ class LEOEnv(gym.Env):
         aligned = {}
         for k, space in self.observation_space.spaces.items():
             wanted_shape = space.shape
-            arr = np.asarray(obs.get(k, np.zeros(wanted_shape)), dtype=np.float32)
+            dtype = getattr(space, 'dtype', np.float32)
+            arr = np.asarray(obs.get(k, np.zeros(wanted_shape, dtype=dtype)), dtype=dtype)
             # if arr has fewer dims, left-pad with batch dim removal
             if arr.shape == wanted_shape:
                 aligned[k] = arr
                 continue
             # create output container
-            out = np.zeros(wanted_shape, dtype=np.float32)
+            out = np.zeros(wanted_shape, dtype=dtype)
             # compute slices
             slices = tuple(slice(0, min(s, t)) for s, t in zip(arr.shape, wanted_shape))
             out[slices] = arr[tuple(slice(0, s) for s in arr.shape)]
@@ -91,7 +94,7 @@ class LEOEnv(gym.Env):
             all_tasks=all_tasks
         )
 
-        obs, info = get_obs(sm=self.SM, dm=self.DM, step=self.step_counter)
+        obs, info = get_obs(sm=self.SM, dm=self.DM, tm=self.TM, step=self.step_counter)
         return self._align_obs(obs), info
 
     def step(self, actions):
@@ -122,21 +125,27 @@ class LEOEnv(gym.Env):
         update_static_energy(nodes, self.SM)
 
         for task, act in zip(tasks, valid_actions):
+            
             if task.is_done:
+                continue
+            
+            valid, action_reward, truncated, truncated_reason = self.TM.validate_action(task, act)
+            
+            if not valid:
                 continue
 
             p, o = task.plane_at, task.order_at
+            
             node = self.JM.nodes.get((p, o))
             if node is None:
                 continue
 
-            if act in [1, 2, 3, 4]:
+            if act == 0:
+                action_reward += NO_ACTION_PENALTY
+                
+            elif act in [1, 2, 3, 4]:
+                
                 # movement actions
-                if task.workload_done > 0:
-                    action_reward += INTERRUPTION_PENALTY
-                if task.data_sent > 0 and task.acted != act:
-                    action_reward += INTERRUPTION_PENALTY
-
                 if act == 1:
                     dst = ((p + 1) % self.JM.N_PLANE, o)
                 elif act == 2:
@@ -156,15 +165,7 @@ class LEOEnv(gym.Env):
                         TransReq(task_id=task.id, src=(p, o), dst=dst, target_file_size=data_bits, step=self.step_counter)
                     )
 
-            elif act == 0:
-                action_reward += NO_ACTION_PENALTY
-
             elif act == 5:
-                # compute action
-                if task.data_sent > 0:
-                    action_reward += INTERRUPTION_PENALTY
-                if task.workload_done > 0 and task.acted != act:
-                    action_reward += INTERRUPTION_PENALTY
 
                 is_occupied = self.DM.is_po_occupied(p=p, o=o)
                 if not is_occupied:
@@ -215,7 +216,7 @@ class LEOEnv(gym.Env):
             truncated_reason = "any_illegal_link"
 
         # 产出观测和可序列化的 info
-        obs, dbg_info = get_obs(sm=self.SM, dm=self.DM, step=self.step_counter)
+        obs, dbg_info = get_obs(sm=self.SM, dm=self.DM, tm=self.TM, step=self.step_counter)
 
         info_obj = Info(
             num_nodes=len(nodes),
@@ -239,7 +240,7 @@ class LEOEnv(gym.Env):
         return obs, reward, terminated, truncated, info_serial
 
     def render(self):
-        from envs.renderer.visualizer import render_satellite_network
+        # from envs.renderer.visualizer import render_satellite_network
         tasks = self.TM.get_tasks_at(step=self.step_counter)
         nodes, edges = self.JM.get_nodes(), self.JM.get_edges()
         render_satellite_network(

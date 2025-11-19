@@ -44,8 +44,8 @@ def render_satellite_network(
     for i, task in enumerate(tasks):
         node = next((n for n in nodes if n.plane_id == task.plane_at and n.order_id == task.order_at), None)
         if node is not None:
-            ax.scatter([node.x], [node.y], [node.z], color=task_colors[i], s=120, marker='o', label=f'Task {task.id}:[{task.layer_id}], delay={task.t_end / STEP_PER_SECOND}')
-            ax.text(node.x, node.y, node.z+2, f'm={task.id}, n={task.layer_id}, action:[{task.acted}]', color=task_colors[i], fontsize=9)
+            ax.scatter([node.x], [node.y], [node.z], color=task_colors[i], s=120, marker='o', label=f'Task {task.id}:[{task.layer_id}], action:[{task.acted}], delay={task.t_end / STEP_PER_SECOND}')
+            ax.text(node.x, node.y, node.z+2, f'Task {task.id}', color=task_colors[i], fontsize=9)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
