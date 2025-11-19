@@ -66,7 +66,7 @@ else:
 # 测试
 obs, _ = env.reset()
 
-for _ in range(10000):
+for _ in range(321):
     action, _ = model.predict(obs)
     obs, reward, done, _, info = env.step(action)
     # write info to log file (JSON serializable if possible)

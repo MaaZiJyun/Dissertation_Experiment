@@ -18,7 +18,7 @@ class TaskManager:
         for _id in range(MAX_NUM_TASKS):
             idx = np.random.randint(0, len(node_keys))
             (_plane_at, _order_at) = node_keys[idx]
-            _t = np.random.randint(0, 5)
+            _t = np.random.randint(0, 10)
             task_obj = Task(
                 id=_id,
                 layer_id=0,

@@ -85,7 +85,9 @@ def do_transferring(
             continue
         
         # 分配带宽比例
-        users = dm.get_rho_by_uv(u=src, v=dst)
+        users_uv = dm.get_rho_by_uv(u=src, v=dst)
+        users_vu = dm.get_rho_by_uv(u=dst, v=src)
+        users = {**users_uv, **users_vu}
         sum_of_data = sum(LAYER_OUTPUT_DATA_SIZE[n] for (m, n), value in users.items() if value)
         bandwidth_allocation = target / sum_of_data if sum_of_data > 0 else 0
 
