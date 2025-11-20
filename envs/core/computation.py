@@ -5,26 +5,6 @@ from envs.param import LAYER_COMPLETION_REWARD, LAYER_PROCESS_STEP_COST, MAX_NUM
 from envs.snapshot.request import CompReq
 from envs.snapshot.task import Task
 
-def process_computation(task: Task):
-    
-    state = 'in_progress'
-    task.workload_done += 1
-
-    if task.workload_done >= LAYER_PROCESS_STEP_COST[task.layer_id]:
-        
-        task.layer_id += 1
-        
-        task.workload_done = 0
-        state = 'layer_complete'
-        
-        if task.layer_id >= MAX_NUM_LAYERS:
-            
-            task.is_done = True
-            state = 'done'
-        
-    
-    return state
-
 def do_computing(
     comp_reqs: List[CompReq],
     tasks: List[Task],
