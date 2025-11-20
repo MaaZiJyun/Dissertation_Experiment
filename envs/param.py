@@ -23,7 +23,8 @@ ENERGY_HARVEST_AMOUNT = 0.1  # 每步能量收集量
 
 # TASK PARAMETERS:
 MAX_NUM_TASKS = 5
-ONE_GBPS = 1_000_000_000
+MAX_TRANS_RATE = 1_000_000_000
+MAX_COMP_RATE = 1 # 1 unit per second
 # 1 Gbps = 1,000,000,000 bits per second
 # 黑白图像（1-bit）	    100,000,000 × 1	    100,000,000 bits	12.5 MB
 # 灰度图（8-bit）       100,000,000 × 8	    800,000,000 bits	100 MB

@@ -5,7 +5,7 @@ import matplotlib.cm as cm
 import numpy as np
 
 from envs.core.json_manager import JsonManager
-from envs.param import STEP_PER_SECOND, STEP_PER_SLOT, T_STEP
+from envs.param import LAYER_OUTPUT_DATA_SIZE, LAYER_PROCESS_STEP_COST, STEP_PER_SECOND, STEP_PER_SLOT, T_STEP
 from envs.snapshot.edge import Edge
 from envs.snapshot.node import Node
 from envs.snapshot.task import Task
@@ -44,12 +44,12 @@ def render_satellite_network(
     for i, task in enumerate(tasks):
         node = next((n for n in nodes if n.plane_id == task.plane_at and n.order_id == task.order_at), None)
         if node is not None:
-            ax.scatter([node.x], [node.y], [node.z], color=task_colors[i], s=120, marker='o', label=f'Task {task.id}:[{task.layer_id}], action:[{task.acted}], delay={task.t_end / STEP_PER_SECOND}')
+            ax.scatter([node.x], [node.y], [node.z], color=task_colors[i], s=120, marker='o', label=f'Task {task.id}:[{task.layer_id}], action:[{task.acted}], workload:[{task.workload_done}/{LAYER_PROCESS_STEP_COST[task.layer_id]}], workload:[{task.data_sent}/{LAYER_OUTPUT_DATA_SIZE[task.layer_id]}], delay={task.t_end * T_STEP:.2f} s')
             ax.text(node.x, node.y, node.z+2, f'Task {task.id}', color=task_colors[i], fontsize=9)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
-    ax.set_title(f'Satellite Network at {step_counter / STEP_PER_SECOND:.2f} seconds')
+    ax.set_title(f'Satellite Network at {step_counter * T_STEP:.2f} seconds')
     handles, labels = ax.get_legend_handles_labels()
     by_label = dict(zip(labels, handles))
     ax.legend(by_label.values(), by_label.keys(), loc='upper left', fontsize=8)

@@ -6,6 +6,9 @@ import logging
 import json
 from datetime import datetime
 
+from envs.param import STEP_PER_SECOND, STEP_PER_SLOT, T_SLOT
+import sys
+
 # 环境实例化
 env = LEOEnv(json_path="data/parsed_data.json")
 
@@ -33,42 +36,19 @@ if os.path.exists(model_path + ".zip"):
     model = PPO.load(model_path, env=env)
     
 else:
-    
-    print("Training new model...")
-    
-    # 创建新的 PPO 模型
-    # choose policy type based on observation space
-    policy_choice = "MlpPolicy"
-    try:
-        from gymnasium import spaces as gspaces
-        if isinstance(env.observation_space, gspaces.Dict):
-            policy_choice = "MultiInputPolicy"
-    except Exception:
-        # fallback: if we can't import gymnasium, inspect type name
-        if env.observation_space.__class__.__name__.endswith("Dict"):
-            policy_choice = "MultiInputPolicy"
-
-    model = PPO(
-        policy = policy_choice,
-        env = env,
-        verbose = 1,
-        learning_rate = 3e-4,
-        batch_size = 64,
-        n_steps = 2048
-    )
-    
-    # 训练模型
-    model.learn(total_timesteps=50000)
-    
-    # 保存模型
-    model.save(model_path)
+    print("No trained model found. Please run 'python3 train.py' to train a model or provide 'model/ppo_leoenv.zip'. Exiting.")
+    sys.exit(1)
 
 # 测试
 obs, _ = env.reset()
 
-for _ in range(321):
+T = 2 * STEP_PER_SLOT
+
+for _ in range(T):
     action, _ = model.predict(obs)
     obs, reward, done, _, info = env.step(action)
+    # print(info.__str__())
+    
     # write info to log file (JSON serializable if possible)
     try:
         logger.info(json.dumps(info, default=lambda o: str(o)))

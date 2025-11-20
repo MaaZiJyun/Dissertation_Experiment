@@ -50,6 +50,9 @@ def do_transferring(
 
         # 当前已经传输的数据量
         sent_data = sm.sum_size_before(m=m, n=n, T=t)
+        
+        # if m == 0:
+        #     print(f"Task {m} Layer {n} Workload Done: {task.data_sent}, Sum Workload Before T={t}: {sent_data}, Target: {target_data_to_send}")
 
         # 检查是否完成传输
         if sent_data >= target_data_to_send:

@@ -85,10 +85,21 @@ class StateManager:
         self.progress[m] = value
         
     def write_size(self, m: int, n: int, value: float):
-        self.size[(m, n)] = value
-        
+        # accumulate size within the current step (per-step increments)
+        self.size[m, n] = float(self.size[m, n]) + float(value)
+            
     def write_workload(self, m: int, n: int, value: int):
-        self.workload[(m, n)] = value
+            # accumulate workload within the current step (per-step increments)
+        self.workload[m, n] = int(self.workload[m, n]) + int(value)
+
+    def clear_step_counters(self):
+        """Clear per-step increment counters (call at the start of each env.step)."""
+        # workload and size may represent per-step increments
+        try:
+            self.workload.fill(0)
+            self.size.fill(0.0)
+        except Exception:
+            pass
         
     def get_comm(self, u: Tuple[int, int], v: Tuple[int, int]) -> float:
         up, uo = u
@@ -143,7 +154,8 @@ class StateManager:
         获取t时间之前所有size[m, n]历史值，返回float字典。
         """
         result = 0.0
-        for t in range(T):
+        # include time step T (sum of increments up to and including T)
+        for t in range(T + 1):
             beta = self._beta.get(t)
             if beta is None:
                 continue
@@ -151,24 +163,40 @@ class StateManager:
             if arr is None:
                 continue
             # ensure indices are in range
-            if arr.ndim >= 2 and m < arr.shape[0] and n < arr.shape[1]:
+            if getattr(arr, 'ndim', 0) >= 2 and 0 <= m < arr.shape[0] and 0 <= n < arr.shape[1]:
                 result += float(arr[m, n])
+        # if current step T is not yet recorded in _beta (called during step), include current buffer
+        if self._beta.get(T) is None:
+            try:
+                if 0 <= m < self.size.shape[0] and 0 <= n < self.size.shape[1]:
+                    result += float(self.size[m, n])
+            except Exception:
+                pass
         return result
 
-    def sum_workload_before(self, m: int, n: int, T: int) -> float:
+    def sum_workload_before(self, m: int, n: int, T: int) -> int:
         """
-        获取t时间之前所有workload[m, n]历史值，返回float字典。
+        获取t时间之前所有workload[m, n]历史值，返回int字典。
         """
-        result = 0.0
-        for t in range(T):
+        result = 0
+        # include time step T (sum of increments up to and including T)
+        for t in range(T + 1):
             beta = self._beta.get(t)
             if beta is None:
                 continue
             arr = beta.get("workload")
             if arr is None:
                 continue
-            if arr.ndim >= 2 and m < arr.shape[0] and n < arr.shape[1]:
-                result += float(arr[m, n])
+            # ensure indices are in range
+            if getattr(arr, 'ndim', 0) >= 2 and 0 <= m < arr.shape[0] and 0 <= n < arr.shape[1]:
+                result += int(arr[m, n])
+        # if current step T is not yet recorded in _beta (called during step), include current buffer
+        if self._beta.get(T) is None:
+            try:
+                if 0 <= m < self.workload.shape[0] and 0 <= n < self.workload.shape[1]:
+                    result += int(self.workload[m, n])
+            except Exception:
+                pass
         return result
     
     def is_empty(self) -> bool:

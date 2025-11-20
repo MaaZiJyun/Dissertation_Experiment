@@ -99,6 +99,8 @@ class LEOEnv(gym.Env):
 
     def step(self, actions):
         # 初始化数值
+        # clear per-step increment counters so writes during this step accumulate as increments
+        self.SM.reset()
         self.DM.reset()
         action_reward = 0.0
         trans_reqs: List[TransReq] = []
@@ -129,61 +131,59 @@ class LEOEnv(gym.Env):
             if task.is_done:
                 continue
             
-            valid, action_reward, truncated, truncated_reason = self.TM.validate_action(task, act)
-            
-            if not valid:
-                continue
-
             p, o = task.plane_at, task.order_at
             
             node = self.JM.nodes.get((p, o))
             if node is None:
                 continue
+            
+            valid, action_reward, truncated, truncated_reason = self.TM.validate_action(task, act)
+            if valid:
 
-            if act == 0:
-                action_reward += NO_ACTION_PENALTY
-                
-            elif act in [1, 2, 3, 4]:
-                
-                # movement actions
-                if act == 1:
-                    dst = ((p + 1) % self.JM.N_PLANE, o)
-                elif act == 2:
-                    dst = ((p - 1) % self.JM.N_PLANE, o)
-                elif act == 3:
-                    dst = (p, (o + 1) % self.JM.N_SAT)
-                else:
-                    dst = (p, (o - 1) % self.JM.N_SAT)
-
-                self.DM.write_rho(u=(p, o), v=dst, n=task.layer_id, m=task.id, value=True)
-
-                if ((p, o), dst) in self.JM.edges:
-                    node.energy = max(node.energy + TRANSMIT_ENERGY_COST, 0.0)
-                    self.SM.write_energy(p=p, o=o, value=node.energy)
-                    data_bits = LAYER_OUTPUT_DATA_SIZE[task.layer_id]
-                    trans_reqs.append(
-                        TransReq(task_id=task.id, src=(p, o), dst=dst, target_file_size=data_bits, step=self.step_counter)
-                    )
-
-            elif act == 5:
-
-                is_occupied = self.DM.is_po_occupied(p=p, o=o)
-                if not is_occupied:
-                    workload = LAYER_PROCESS_STEP_COST[task.layer_id]
-                    self.DM.write_pi(p=p, o=o, n=task.layer_id, m=task.id, value=True)
-                    node.energy = max(node.energy + COMPUTE_ENERGY_COST, 0.0)
-                    self.SM.write_energy(p=p, o=o, value=node.energy)
-                    comp_reqs.append(
-                        CompReq(
-                            task_id=task.id,
-                            node_id=(p, o),
-                            layer_id=task.layer_id,
-                            target_workload=workload,
-                            workload_done=task.workload_done,
-                        )
-                    )
-                else:
+                if act == 0:
                     action_reward += NO_ACTION_PENALTY
+                    
+                elif act in [1, 2, 3, 4]:
+                    
+                    # movement actions
+                    if act == 1:
+                        dst = ((p + 1) % self.JM.N_PLANE, o)
+                    elif act == 2:
+                        dst = ((p - 1) % self.JM.N_PLANE, o)
+                    elif act == 3:
+                        dst = (p, (o + 1) % self.JM.N_SAT)
+                    else:
+                        dst = (p, (o - 1) % self.JM.N_SAT)
+
+                    self.DM.write_rho(u=(p, o), v=dst, n=task.layer_id, m=task.id, value=True)
+
+                    if ((p, o), dst) in self.JM.edges:
+                        node.energy = max(node.energy + TRANSMIT_ENERGY_COST, 0.0)
+                        self.SM.write_energy(p=p, o=o, value=node.energy)
+                        data_bits = LAYER_OUTPUT_DATA_SIZE[task.layer_id]
+                        trans_reqs.append(
+                            TransReq(task_id=task.id, src=(p, o), dst=dst, target_file_size=data_bits, step=self.step_counter)
+                        )
+
+                elif act == 5:
+
+                    is_occupied = self.DM.is_po_occupied(p=p, o=o)
+                    if not is_occupied:
+                        workload = LAYER_PROCESS_STEP_COST[task.layer_id]
+                        self.DM.write_pi(p=p, o=o, n=task.layer_id, m=task.id, value=True)
+                        node.energy = max(node.energy + COMPUTE_ENERGY_COST, 0.0)
+                        self.SM.write_energy(p=p, o=o, value=node.energy)
+                        comp_reqs.append(
+                            CompReq(
+                                task_id=task.id,
+                                node_id=(p, o),
+                                layer_id=task.layer_id,
+                                target_workload=workload,
+                                workload_done=task.workload_done,
+                            )
+                        )
+                    else:
+                        action_reward += NO_ACTION_PENALTY
 
             task.t_end += 1
             task.acted = act
@@ -225,6 +225,8 @@ class LEOEnv(gym.Env):
             step=self.step_counter,
             alpha=dbg_info['alpha'],
             beta=dbg_info['beta'],
+            truncated_reason=truncated_reason,
+            terminated_reason=terminated_reason,
         )
 
         info_obj.reward = float(reward)

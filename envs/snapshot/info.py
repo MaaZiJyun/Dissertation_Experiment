@@ -18,6 +18,12 @@ class Info():
         step: int,
         alpha: Dict[str, np.ndarray],
         beta: Dict[str, np.ndarray],
+        reward: float = 0.0,
+        is_truncated: bool = False,
+        truncated_reason: str = "None",
+        is_terminated: bool = False,
+        terminated_reason: str = "None",
+        **kwargs,
     ):
         self.num_nodes = num_nodes
         self.num_edges = num_edges
@@ -25,12 +31,12 @@ class Info():
         self.step = step
         self.alpha = alpha
         self.beta = beta
-        
-        self.reward = 0.0
-        self.is_truncated = False
-        self.truncated_reason = "None"
-        self.is_terminated = False
-        self.terminated_reason = "None"
+    # allow initializing these fields directly if provided
+        self.reward = float(reward)
+        self.is_truncated = bool(is_truncated)
+        self.truncated_reason = str(truncated_reason)
+        self.is_terminated = bool(is_terminated)
+        self.terminated_reason = str(terminated_reason)
 
     def to_serializable(self) -> Dict[str, object]:
         """Return a JSON-serializable dict representation of this Info.
